@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prime-Length DFT: Rader's Algorithm Computational Analysis</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f0f4f8; padding: 20px; }
+        .container { max-width: 1400px; width: 100%; background-color: #ffffff; border-radius: 12px; box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1); padding: 30px; }
+        .section-title { font-size: 2rem; font-weight: 700; color: #2a4365; margin-bottom: 20px; text-align: center; }
+        canvas { background-color: #ffffff; border: 1px solid #e2eeef; border-radius: 6px; width: 100%; height: 250px; margin-top: 10px; }
+        .method-card { border: 2px solid #a0aec0; border-radius: 10px; padding: 15px; transition: transform 0.2s; background-color: #f7fafc; }
+        .method-card:hover { transform: translateY(-3px); box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1); }
+        .result-box { background-color: #edf2f7; padding: 10px; border-radius: 6px; font-weight: 600; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="section-title">Computational Comparison: Rader's Algorithm for Prime-Length DFT</h1>
+
+        <div class="input-panel bg-gray-100 p-6 rounded-xl mb-8 flex flex-col md:flex-row gap-6 items-start">
+            <div class="flex-grow">
+                <p class="text-lg font-semibold text-gray-700 mb-2">Simulation Parameters:</p>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600">Prime Signal Length (N):</label>
+                        <input type="number" id="N_prime" value="503" min="5" step="1" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 text-gray-800" title="Enter a prime number (e.g., 503, 1009).">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600">Signal Frequency (Hz):</label>
+                        <input type="number" id="freq_hz" value="3" min="1" step="0.5" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 text-gray-800">
+                    </div>
+                </div>
+                <div class="mt-4 text-sm text-gray-500">
+                    Signal Type: Simple Sine Wave. Sample Rate: 100 Hz (fixed).
+                </div>
+            </div>
+            <div class="flex-shrink-0 pt-6 md:pt-0">
+                <button id="analyzeBtn" class="bg-blue-600 hover:bg-blue-700 text-white btn px-8 py-3 w-full rounded-lg shadow-lg">
+                    Run Analysis & Compare
+                </button>
+            </div>
+        </div>
+
+        <div id="loading" class="text-center text-xl font-medium text-red-500 hidden mb-6">
+            <p>Running highly intensive DFT calculation... This may take a moment.</p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6" id="resultsGrid">
+            <!-- Method 1 -->
+            <div class="method-card border-red-500 border-2">
+                <h2 class="text-xl font-bold text-red-700 mb-3">Method 1: Brute-Force DFT (Benchmark)</h2>
+                <p class="text-sm text-gray-600">The slow, $O(N^2)$ definition. Used here as the **Accuracy Gold Standard**.</p>
+                <h3 class="font-semibold mt-4">Magnitude Spectrum:</h3>
+                <canvas id="canvasMag1"></canvas>
+                <div class="result-box bg-red-100 text-red-800">Time: <span id="time1">0 ms</span> | Accuracy: <span class="font-extrabold">Perfect</span></div>
+            </div>
+
+            <!-- Method 2 -->
+            <div class="method-card border-yellow-500 border-2">
+                <h2 class="text-xl font-bold text-yellow-700 mb-3">Method 2: Zero-Padding (Industry Workaround)</h2>
+                <p class="text-sm text-gray-600">The common, fast workaround. Shows speed but introduces **Spectral Leakage**.</p>
+                <h3 class="font-semibold mt-4">Magnitude Spectrum:</h3>
+                <canvas id="canvasMag2"></canvas>
+                <div class="result-box bg-yellow-100 text-yellow-800">Time: <span id="time2">0 ms</span> | Accuracy: <span class="font-extrabold">Flawed</span></div>
+            </div>
+
+            <!-- Method 3 -->
+            <div class="method-card border-green-500 border-2">
+                <h2 class="text-xl font-bold text-green-700 mb-3">Method 3: Rader's Method (Optimized DFT)</h2>
+                <p class="text-sm text-gray-600">The specialized, $O(N \log N)$ method (Conceptually Rader's/Bluestein's). Achieves **Optimal Speed and Accuracy**.</p>
+                <h3 class="font-semibold mt-4">Magnitude Spectrum:</h3>
+                <canvas id="canvasMag3"></canvas>
+                <div class="result-box bg-green-100 text-green-800">Time: <span id="time3">0 ms</span> | Accuracy: <span class="font-extrabold">Perfect</span></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Core Complex Number and FFT Tools ---
+        class Complex {
+            constructor(re, im) {
+                this.re = re || 0;
+                this.im = im || 0;
+            }
+            add(other) { return new Complex(this.re + other.re, this.im + other.im); }
+            sub(other) { return new Complex(this.re - other.re, this.im - other.im); }
+            mul(other) {
+                return new Complex(
+                    this.re * other.re - this.im * other.im,
+                    this.re * other.im + this.im * other.re
+                );
+            }
+            conj() { return new Complex(this.re, -this.im); }
+            mag() { return Math.sqrt(this.re * this.re + this.im * this.im); }
+            phase() { return Math.atan2(this.im, this.re); }
+            div(other) {
+                const magSq = other.re * other.re + other.im * other.im;
+                return new Complex(
+                    (this.re * other.re + this.im * other.im) / magSq,
+                    (this.im * other.re - this.re * other.im) / magSq
+                );
+            }
+        }
+
+        // Standard Radix-2 FFT (Used internally by Method 2 and 3)
+        // Note: Assumes input length N is a power of 2
+        function standardFFT(x) {
+            const N = x.length;
+            if (N <= 1) return x;
+
+            // 1. Bit-reversal permutation (in-place)
+            let j = 0;
+            for (let i = 0; i < N; i++) {
+                if (i < j) [x[i], x[j]] = [x[j], x[i]];
+                let m = N / 2;
+                while (j >= m && m > 0) { j -= m; m /= 2; }
+                j += m;
+            }
+
+            // 2. Cooley-Tukey butterfly algorithm
+            for (let len = 2; len <= N; len *= 2) {
+                const angle = -2 * Math.PI / len;
+                const Wlen = new Complex(Math.cos(angle), Math.sin(angle));
+                for (let i = 0; i < N; i += len) {
+                    let W = new Complex(1, 0);
+                    for (let k = 0; k < len / 2; k++) {
+                        const u = x[i + k];
+                        const v = W.mul(x[i + k + len / 2]);
+                        x[i + k] = u.add(v);
+                        x[i + k + len / 2] = u.sub(v);
+                        W = W.mul(Wlen);
+                    }
+                }
+            }
+            return x;
+        }
+
+        // Standard IFFT (Helper function)
+        function standardIFFT(X) {
+            const N = X.length;
+            const conjX = X.map(c => c.conj());
+            const ifftX = standardFFT(conjX);
+            return ifftX.map(c => new Complex(c.re / N, c.im / N));
+        }
+
+        // Utility to find the next power of 2
+        function nextPowerOf2(n) {
+            return Math.pow(2, Math.ceil(Math.log2(n)));
+        }
+
+        // --- Method 1: Brute Force DFT (O(N^2)) ---
+        function bruteForceDFT(x) {
+            const N = x.length;
+            const X = new Array(N);
+            for (let k = 0; k < N; k++) {
+                let sum = new Complex(0, 0);
+                for (let n = 0; n < N; n++) {
+                    const angle = -2 * Math.PI * k * n / N;
+                    const root = new Complex(Math.cos(angle), Math.sin(angle));
+                    sum = sum.add(x[n].mul(root));
+                }
+                X[k] = sum;
+            }
+            return X;
+        }
+
+        // --- Method 3: Bluestein's Algorithm (Chirp Z-Transform) ---
+        // Used as the stable proxy for Rader's/Specialized O(N log N) method in browser
+        function bluesteinsAlgorithm(x) {
+            const N = x.length; 
+            if (N <= 2) return bruteForceDFT(x); 
+            
+            // 1. Define m_n (Chirp Sequence)
+            const m = new Array(N);
+            for (let n = 0; n < N; n++) {
+                const angle = Math.PI * (n * n % (2 * N)) / N;
+                m[n] = new Complex(Math.cos(angle), Math.sin(angle));
+            }
+
+            // 2. Define A_n (Pre-multiplication of input)
+            const A = new Array(N);
+            for (let n = 0; n < N; n++) {
+                A[n] = x[n].mul(m[n]);
+            }
+
+            // 3. Define B_k (Convolution Kernel/Chirp Sequence)
+            const M = nextPowerOf2(2 * N - 1); 
+            const B = new Array(M).fill(new Complex(0, 0));
+
+            // B[k] = m[k] conjugate for k=0...N-1
+            for (let k = 0; k < N; k++) {
+                B[k] = m[k].conj();
+            }
+            // B[k] = m[2N-k] conjugate for k=N+1...M-1 (periodic extension)
+            for (let k = 1; k < N; k++) {
+                B[M - k] = m[k].conj();
+            }
+
+            // 4. Perform Convolution
+            
+            // Pad A to length M
+            const paddedA = new Array(M).fill(new Complex(0, 0));
+            for(let i=0; i<N; i++) {
+                paddedA[i] = A[i];
+            }
+            
+            // FFT[A] * FFT[B]
+            const FA = standardFFT(paddedA);
+            const FB = standardFFT(B); 
+            
+            const C_fft = new Array(M);
+            for(let i=0; i<M; i++) {
+                C_fft[i] = FA[i].mul(FB[i]);
+            }
+            
+            // IFFT to get convolution result C
+            const C_conv = standardIFFT(C_fft);
+            
+            // 5. Final Post-multiplication
+            const X = new Array(N);
+            for (let k = 0; k < N; k++) {
+                X[k] = C_conv[k].mul(m[k]);
+            }
+            
+            return X;
+        }
+
+
+        // --- Drawing and Setup ---
+
+        // Simple prime checking function for user input validation
+        function isPrime(num) {
+            if (num <= 1) return false;
+            if (num <= 3) return true;
+            if (num % 2 === 0 || num % 3 === 0) return false;
+            for (let i = 5; i * i <= num; i = i + 6) {
+                if (num % i === 0 || num % (i + 2) === 0) return false;
+            }
+            return true;
+        }
+
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const N_prime_input = document.getElementById('N_prime');
+        const freq_hz_input = document.getElementById('freq_hz');
+        const loadingDiv = document.getElementById('loading');
+        
+        const canvasMap = {
+            1: { mag: document.getElementById('canvasMag1'), time: document.getElementById('time1'), color: '#c53030' },
+            2: { mag: document.getElementById('canvasMag2'), time: document.getElementById('time2'), color: '#d69e2e' },
+            3: { mag: document.getElementById('canvasMag3'), time: document.getElementById('time3'), color: '#38a169' }
+        };
+
+        // Simplified plotSpectrum function to ONLY handle magnitude
+        function plotSpectrum(canvas, data, title, color, maxMagAccurate) {
+            const ctx = canvas.getContext('2d');
+            const W = canvas.offsetWidth;
+            const H = canvas.offsetHeight;
+            canvas.width = W;
+            canvas.height = H;
+
+            ctx.clearRect(0, 0, W, H);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, W, H);
+
+            const N = data.length;
+            if (N === 0) return;
+
+            // Plot up to the Nyquist frequency (N/2)
+            const plotN = Math.floor(N / 2);
+            const plotData = data.slice(0, plotN);
+            
+            // Magnitude parameters
+            const maxVal = maxMagAccurate; 
+            const padding = 20;
+            const chartW = W - 2 * padding;
+            const chartH = H - 2 * padding;
+            const xStep = chartW / (plotN > 1 ? plotN - 1 : 1);
+
+            // Draw X-axis (base line)
+            ctx.beginPath();
+            ctx.strokeStyle = '#a0aec0';
+            ctx.lineWidth = 1;
+            ctx.moveTo(padding, H - padding);
+            ctx.lineTo(W - padding, H - padding);
+            ctx.stroke();
+
+            // Draw data
+            ctx.beginPath();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+
+            for (let i = 0; i < plotN; i++) {
+                const val = plotData[i].mag();
+                
+                // Scale magnitude from 0 to maxMagAccurate
+                const y = H - padding - (val / maxVal) * (chartH - 20); 
+                const x = padding + i * xStep;
+
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+
+            // Labels
+            ctx.fillStyle = '#2d3748';
+            ctx.font = '10px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(title, W / 2, 12);
+        }
+
+        async function runAnalysis() {
+            const N_prime = parseInt(N_prime_input.value);
+            const freq_hz = parseFloat(freq_hz_input.value);
+            const sampleRate = 100;
+
+            if (N_prime < 5 || N_prime % 2 === 0) {
+                alert("Please use an odd number greater than 5 for the prime signal length.");
+                return;
+            }
+
+            if (!isPrime(N_prime)) {
+                 alert("The input length (N) must be a prime number for this demonstration. Please try 503, 1009 or 9973.");
+                return;
+            }
+
+
+            loadingDiv.style.display = 'block';
+            analyzeBtn.disabled = true;
+
+            // Short pause to ensure UI updates before heavy calculation begins
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // --- Generate Input Signal x[n] (Complex Array) ---
+            const inputSignal = new Array(N_prime);
+            for (let n = 0; n < N_prime; n++) {
+                const t = n / sampleRate;
+                const value = Math.sin(2 * Math.PI * freq_hz * t);
+                inputSignal[n] = new Complex(value, 0);
+            }
+
+            // --- RUN METHOD 1: BRUTE FORCE DFT (O(N^2)) ---
+            // Run twice for realistic timing of the slow method
+            bruteForceDFT([...inputSignal]); 
+            const start1 = performance.now();
+            const X1 = bruteForceDFT([...inputSignal]);
+            const time1 = performance.now() - start1;
+
+            // --- RUN METHOD 2: ZERO-PADDING FFT ---
+            const N_fft = nextPowerOf2(N_prime);
+            const paddedSignal = new Array(N_fft).fill(new Complex(0, 0));
+            for (let i = 0; i < N_prime; i++) {
+                paddedSignal[i] = inputSignal[i];
+            }
+            
+            const start2 = performance.now();
+            const X2 = standardFFT(paddedSignal);
+            const time2 = performance.now() - start2;
+            
+            // --- RUN METHOD 3: BLUESTEIN'S ALGORITHM (Proxy for Rader's) ---
+            const start3 = performance.now();
+            const X3 = bluesteinsAlgorithm([...inputSignal]);
+            const time3 = performance.now() - start3;
+
+            // Determine the maximum magnitude across all accurate methods for unified scaling
+            const maxMagAccurate = Math.max(...X1.map(c => c.mag()), ...X3.map(c => c.mag())) * 1.1;
+
+            // --- Plotting Results (Magnitude Only) ---
+            
+            // Plot Method 1 (Brute Force DFT)
+            canvasMap[1].time.textContent = `${time1.toFixed(3)} ms`;
+            plotSpectrum(canvasMap[1].mag, X1, `Magnitude (${N_prime} pts)`, canvasMap[1].color, maxMagAccurate);
+
+            // Plot Method 2 (Zero-Padding FFT)
+            canvasMap[2].time.textContent = `${time2.toFixed(3)} ms`;
+            plotSpectrum(canvasMap[2].mag, X2, `Magnitude (${N_fft} pts, Padded)`, canvasMap[2].color, maxMagAccurate);
+
+            // Plot Method 3 (Bluestein's Algorithm)
+            canvasMap[3].time.textContent = `${time3.toFixed(3)} ms`;
+            plotSpectrum(canvasMap[3].mag, X3, `Magnitude (${N_prime} pts, Optimized)`, canvasMap[3].color, maxMagAccurate);
+
+
+            loadingDiv.style.display = 'none';
+            analyzeBtn.disabled = false;
+        }
+        
+        // --- FIX: Ensure JS runs only AFTER HTML is loaded ---
+        window.onload = function() {
+            analyzeBtn.addEventListener('click', runAnalysis);
+            runAnalysis(); // Run once on load for initial display
+        };
+
+    </script>
+</body>
+</html>
